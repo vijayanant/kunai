@@ -1,0 +1,7 @@
+{
+    "check": {
+        "interval": "3000s", 
+        "notes": "", 
+        "script": "cat /proc/meminfo"
+    }
+}

@@ -1,4 +1,4 @@
-kunai
-=====
+Kunai
+======
 
-Service discovery &amp; monitoring tool
+

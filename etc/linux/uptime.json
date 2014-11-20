@@ -1,0 +1,6 @@
+{
+    "check": {
+	"script": "/root/kunai/libexec/linux-ssh/check_uptime_by_ssh.py",
+	"interval": "30s"
+    }
+}

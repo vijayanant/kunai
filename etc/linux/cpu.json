@@ -1,0 +1,6 @@
+{
+    "check": {
+	"script": "ping -c1 www.cpu.com >/dev/null", 
+	"interval": "3000s"
+    }
+}

@@ -1,0 +1,6 @@
+{
+    "check": {
+	"script": "/root/kunai/libexec/linux-ssh/check_tcp_states_by_ssh.py",
+	"interval": "10s"
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "port"           : 6768,
+    "data"           : "/var/lib/kunai/data",
+    "libexec"        : "/var/lib/kunai/libexec/",
+    "bootstrap"      : false,
+    "seeds"          : [],
+    "tags"           : ["kv","ts"],
+        
+    "encryption_key" : "",
+    "master_key_priv": "mfkey.priv",
+    "master_key_pub" : "mfkey.pub",
+
+    
+    "load":{"warning":1, "critical":2}
+
+}

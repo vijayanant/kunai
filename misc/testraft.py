@@ -40,6 +40,9 @@ class RaftNode(object):
         return '(%d:%s)' % (self.i, self.state)
 
 
+
+    def tick(self, nodes):
+        pass
     
 
 def node_main(n, q, nodes):
@@ -99,7 +102,7 @@ def node_main(n, q, nodes):
                     continue
                 if n.state == 'leader': # another leader?
                     print "TO MANAGE"*100
-                elif n.state in ['candidate', 'follower']: # 
+                elif n.state in ['candidate', 'follower', 'did-vote']: # 
                     n.leader = None
                     for d in nodes:
                         if d['node'].i == elected_id:
@@ -107,7 +110,8 @@ def node_main(n, q, nodes):
                     n.nb_vote = 0
                     n.state = 'follower'
                     n.t_to_candidate = 0
-                    print "I (%d) got a new leader (%d), and I respect it" % (elected_id, n.leader.i)
+                    if n.state == 'candidate':
+                        print "I (%d) got a new leader (%d) before me, and I respect it" % (n.i, n.leader.i)
                     # for the example don't go too far
                     break
             continue
@@ -145,7 +149,7 @@ def node_main(n, q, nodes):
 
 
 
-N = 400
+N = 300
 
 
 def do_the_job():
@@ -188,7 +192,7 @@ def do_the_job():
 
 
 
-LOOP=0
+LOOP = 0
 while True:
     LOOP += 1
     # Start with basic election

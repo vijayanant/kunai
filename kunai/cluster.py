@@ -3,6 +3,7 @@ import sys
 import socket
 import json
 import uuid
+import imp
 import threading
 import argparse
 import time
@@ -26,6 +27,7 @@ import zlib
 import re
 import copy
 import cPickle
+
 try:
     from Crypto.Cipher import AES
     from Crypto.PublicKey import RSA
@@ -49,6 +51,7 @@ from kunai.util import make_dir, copy_dir
 from kunai.threadmgr import threader
 from kunai.perfdata import PerfDatas
 from kunai.now import NOW
+from kunai.collector import Collector
 
 KGOSSIP = 10
 
@@ -293,6 +296,9 @@ class Cluster(object):
         # Challenge send so we can match the response when we will get them
         self.challenges = {}
 
+        # Load all collectors
+        self.collectors = {}
+        self.load_collectors()
 
 
     def load_cfg_dir(self):
@@ -619,6 +625,53 @@ class Cluster(object):
        self.active_checks = active_checks
        # Also update our checks list in KV space
        self.update_checks_kv()
+
+
+    def load_collector(self, cls):
+        colname = cls.__name__.lower()
+        logger.debug('Loading collector %s from class %s' % (colname, cls))
+        try:
+            inst = cls(self.cfg_data)
+        except Exception, exp:
+            
+            logger.error('Cannot load the %s collector: %s' % (cls, traceback.format_exc()))
+            return
+        e = {
+            'name': colname,
+            'inst': inst,
+            'last_check': 0,
+            'next_check': int(time.time()) + int(random.random())*10,
+            }
+        self.collectors[cls] = e
+
+
+    def load_collectors(self):
+        collector_dir = os.path.join(self.data_dir, 'collectors')
+        p = collector_dir+'/*py'
+        print "LOAD", p
+        collector_files = glob.glob(p)
+        print "LOADING COLLECTOR FILES", collector_files, collector_dir
+        for f in collector_files:
+            fname = os.path.splitext(os.path.basename(f))[0]
+            try:
+                m = imp.load_source('collector%s' % fname, f)
+            except Exception, exp:
+                print "COLLECTOR LOAD FAIL", exp
+                continue
+            print "LOADED COLLECTOR", m
+            print m.__dict__
+            for (k,v) in m.__dict__.iteritems():
+                print k, v
+
+        collector_clss = Collector.get_sub_class()
+        for ccls in collector_clss:
+            # skip base module Collector
+            if ccls == Collector:
+                continue
+            # Maybe this collector is already loaded
+            if ccls in self.collectors:
+                continue
+            self.load_collector(ccls)
 
 
     # What to do when we receive a signal from the system
@@ -1729,6 +1782,35 @@ class Cluster(object):
              del cur_launchs[cid]
 
           time.sleep(1)
+
+
+    # Main thread for launching collectors
+    def do_collector_thread(self):
+       logger.log('COLLECTOR thread launched', part='check')
+       cur_launchs = {}
+       while not self.interrupted:
+           now = int(time.time())
+           for (cls, e) in self.collectors.itertiems():
+               colname = e['name']
+               inst = e['inst']
+               # maybe a collection is already running
+               if colname in cur_launchs:
+                   continue
+               
+               if now <  e['next_check']:
+                   logger.debug('CHECK: launching collector %s' % colname, part='check')
+                   t = threader.create_and_launch(inst.main, name='collector-%s' % colname)#, args=(,))
+                   cur_launchs[colname] = t
+
+           to_del = []
+           for (colname, t) in cur_launchs.iteritems():
+               if not t.is_alive():
+                   t.join()
+                   to_del.append(colname)
+           for colname in to_del:
+               del cur_launchs[colname]
+
+           time.sleep(1)
 
 
     # Try to find the params for a macro in the foloowing objets, in that order:

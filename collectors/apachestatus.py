@@ -17,17 +17,17 @@ class ApacheStatus(Collector):
     def launch(self):
         logger.debug('getApacheStatus: start')
 
-        if 'apacheStatusUrl' in self.agentConfig and self.agentConfig['apacheStatusUrl'] != 'http://www.example.com/server-status/?auto':    # Don't do it if the status URL hasn't been provided
+        if 'apacheStatusUrl' in self.config and self.config['apacheStatusUrl'] != 'http://www.example.com/server-status/?auto':    # Don't do it if the status URL hasn't been provided
             logger.debug('getApacheStatus: config set')
 
             try:
                 logger.debug('getApacheStatus: attempting urlopen')
 
-                if 'apacheStatusUser' in self.agentConfig and 'apacheStatusPass' in self.agentConfig and self.agentConfig['apacheStatusUrl'] != '' and self.agentConfig['apacheStatusPass'] != '':
+                if 'apacheStatusUser' in self.config and 'apacheStatusPass' in self.config and self.config['apacheStatusUrl'] != '' and self.config['apacheStatusPass'] != '':
                     logger.debug('getApacheStatus: u/p config set')
 
                     passwordMgr = urllib2.HTTPPasswordMgrWithDefaultRealm()
-                    passwordMgr.add_password(None, self.agentConfig['apacheStatusUrl'], self.agentConfig['apacheStatusUser'], self.agentConfig['apacheStatusPass'])
+                    passwordMgr.add_password(None, self.config['apacheStatusUrl'], self.config['apacheStatusUser'], self.config['apacheStatusPass'])
 
                     handler = urllib2.HTTPBasicAuthHandler(passwordMgr)
 
@@ -35,13 +35,13 @@ class ApacheStatus(Collector):
                     opener = urllib2.build_opener(handler)
 
                     # use the opener to fetch a URL
-                    opener.open(self.agentConfig['apacheStatusUrl'])
+                    opener.open(self.config['apacheStatusUrl'])
 
                     # Install the opener.
                     # Now all calls to urllib2.urlopen use our opener.
                     urllib2.install_opener(opener)
 
-                req = urllib2.Request(self.agentConfig['apacheStatusUrl'], None, headers)
+                req = urllib2.Request(self.config['apacheStatusUrl'], None, headers)
                 request = urllib2.urlopen(req)
                 response = request.read()
 

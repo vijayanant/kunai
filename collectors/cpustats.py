@@ -1,5 +1,6 @@
 import httplib # Used only for handling httplib.HTTPException (case #26701)
 import os
+import sys
 import platform
 import re
 import urllib
@@ -7,7 +8,7 @@ import urllib2
 import traceback
 import time
 from StringIO import StringIO
-
+from multiprocessing import subprocess
 
 from kunai.log import logger
 from kunai.collector import Collector
@@ -30,7 +31,7 @@ class CpuStats(Collector):
                 proc = subprocess.Popen(['mpstat', '-P', 'ALL', '1', '1'], stdout=subprocess.PIPE, close_fds=True)
                 stats = proc.communicate()[0]
 
-                if int(pythonVersion[1]) >= 6:
+                if int(self.pythonVersion[1]) >= 6:
                     try:
                         proc.kill()
                     except Exception, e:
@@ -64,7 +65,7 @@ class CpuStats(Collector):
                 return False
 
             except Exception, ex:
-                if int(pythonVersion[1]) >= 6:
+                if int(self.pythonVersion[1]) >= 6:
                     try:
                         if proc:
                             proc.kill()

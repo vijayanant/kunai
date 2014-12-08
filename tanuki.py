@@ -43,6 +43,7 @@ def f(port, name, bootstrap, seeds, tags, cfg_dir, libexec_dir):
     c.launch_listeners()
     c.join()
     c.launch_check_thread()
+    c.launch_collector_thread()
     if 'kv' in tags.split(','):
         c.launch_replication_backlog_thread()
         c.launch_replication_first_sync_thread()

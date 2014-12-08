@@ -17,10 +17,10 @@ class RabbitMQ(Collector):
     def launch(self):
         logger.debug('getRabbitMQStatus: start')
 
-        if 'rabbitMQStatusUrl' not in self.agentConfig or \
-                    'rabbitMQUser' not in self.agentConfig or \
-                    'rabbitMQPass' not in self.agentConfig or \
-            self.agentConfig['rabbitMQStatusUrl'] == 'http://www.example.com:55672/json':
+        if 'rabbitMQStatusUrl' not in self.config or \
+                    'rabbitMQUser' not in self.config or \
+                    'rabbitMQPass' not in self.config or \
+            self.config['rabbitMQStatusUrl'] == 'http://www.example.com:55672/json':
 
             logger.debug('getRabbitMQStatus: config not set')
             return False
@@ -31,13 +31,13 @@ class RabbitMQ(Collector):
             logger.debug('getRabbitMQStatus: attempting authentication setup')
 
             manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
-            manager.add_password(None, self.agentConfig['rabbitMQStatusUrl'], self.agentConfig['rabbitMQUser'], self.agentConfig['rabbitMQPass'])
+            manager.add_password(None, self.config['rabbitMQStatusUrl'], self.config['rabbitMQUser'], self.config['rabbitMQPass'])
             handler = urllib2.HTTPBasicAuthHandler(manager)
             opener = urllib2.build_opener(handler)
             urllib2.install_opener(opener)
 
             logger.debug('getRabbitMQStatus: attempting urlopen')
-            req = urllib2.Request(self.agentConfig['rabbitMQStatusUrl'], None, headers)
+            req = urllib2.Request(self.config['rabbitMQStatusUrl'], None, headers)
 
             # Do the request, log any errors
             request = urllib2.urlopen(req)
@@ -78,12 +78,12 @@ class RabbitMQ(Collector):
                 logger.debug('getRabbitMQStatus: using 2.x management plugin data')
                 import urlparse
 
-                split_url = urlparse.urlsplit(self.agentConfig['rabbitMQStatusUrl'])
+                split_url = urlparse.urlsplit(self.config['rabbitMQStatusUrl'])
 
                 # Connections
                 url = split_url[0] + '://' + split_url[1] + '/api/connections'
                 logger.debug('getRabbitMQStatus: attempting urlopen on %s', url)
-                manager.add_password(None, url, self.agentConfig['rabbitMQUser'], self.agentConfig['rabbitMQPass'])
+                manager.add_password(None, url, self.config['rabbitMQUser'], self.config['rabbitMQPass'])
                 req = urllib2.Request(url, None, headers)
                 # Do the request, log any errors
                 request = urllib2.urlopen(req)
@@ -102,7 +102,7 @@ class RabbitMQ(Collector):
                 # Queues
                 url = split_url[0] + '://' + split_url[1] + '/api/queues'
                 logger.debug('getRabbitMQStatus: attempting urlopen on %s', url)
-                manager.add_password(None, url, self.agentConfig['rabbitMQUser'], self.agentConfig['rabbitMQPass'])
+                manager.add_password(None, url, self.config['rabbitMQUser'], self.config['rabbitMQPass'])
                 req = urllib2.Request(url, None, headers)
                 # Do the request, log any errors
                 request = urllib2.urlopen(req)

@@ -17,13 +17,13 @@ class Nginx(Collector):
     def launch(self):
         logger.debug('getNginxStatus: start')
 
-        if 'nginxStatusUrl' in self.agentConfig and self.agentConfig['nginxStatusUrl'] != 'http://www.example.com/nginx_status':    # Don't do it if the status URL hasn't been provided
+        if 'nginxStatusUrl' in self.config and self.config['nginxStatusUrl'] != 'http://www.example.com/nginx_status':    # Don't do it if the status URL hasn't been provided
             logger.debug('getNginxStatus: config set')
 
             try:
                 logger.debug('getNginxStatus: attempting urlopen')
 
-                req = urllib2.Request(self.agentConfig['nginxStatusUrl'], None, headers)
+                req = urllib2.Request(self.config['nginxStatusUrl'], None, headers)
 
                 # Do the request, log any errors
                 request = urllib2.urlopen(req)

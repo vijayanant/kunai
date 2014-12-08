@@ -17,7 +17,7 @@ class Mysql(Collector):
     def launch(self):
         logger.debug('getMySQLStatus: start')
 
-        if 'MySQLServer' in self.agentConfig and 'MySQLUser' in self.agentConfig and self.agentConfig['MySQLServer'] != '' and self.agentConfig['MySQLUser'] != '':
+        if 'MySQLServer' in self.config and 'MySQLUser' in self.config and self.config['MySQLServer'] != '' and self.config['MySQLUser'] != '':
 
             logger.debug('getMySQLStatus: config')
 
@@ -28,20 +28,20 @@ class Mysql(Collector):
                 logger.error('getMySQLStatus: unable to import MySQLdb')
                 return False
 
-            if 'MySQLPort' not in self.agentConfig:
-                self.agentConfig['MySQLPort'] = 3306
+            if 'MySQLPort' not in self.config:
+                self.config['MySQLPort'] = 3306
 
-            if 'MySQLSocket' not in self.agentConfig:
+            if 'MySQLSocket' not in self.config:
                 # Connect
                 try:
-                    db = MySQLdb.connect(host=self.agentConfig['MySQLServer'], user=self.agentConfig['MySQLUser'], passwd=self.agentConfig['MySQLPass'], port=int(self.agentConfig['MySQLPort']))
+                    db = MySQLdb.connect(host=self.config['MySQLServer'], user=self.config['MySQLUser'], passwd=self.config['MySQLPass'], port=int(self.config['MySQLPort']))
                 except MySQLdb.OperationalError, message:
                     logger.error('getMySQLStatus: MySQL connection error (server): %s', message)
                     return False
             else:
                 # Connect
                 try:
-                    db = MySQLdb.connect(host='localhost', user=self.agentConfig['MySQLUser'], passwd=self.agentConfig['MySQLPass'], port=int(self.agentConfig['MySQLPort']), unix_socket=self.agentConfig['MySQLSocket'])
+                    db = MySQLdb.connect(host='localhost', user=self.config['MySQLUser'], passwd=self.config['MySQLPass'], port=int(self.config['MySQLPort']), unix_socket=self.config['MySQLSocket'])
 
                 except MySQLdb.OperationalError, message:
                     logger.error('getMySQLStatus: MySQL connection error (socket): %s', message)
@@ -205,7 +205,7 @@ class Mysql(Collector):
             logger.debug('getMySQLStatus: getting Threads_connected - done')
             logger.debug('getMySQLStatus: getting Seconds_Behind_Master')
 
-            if 'MySQLNoRepl' not in self.agentConfig:
+            if 'MySQLNoRepl' not in self.config:
                 # Seconds_Behind_Master
                 try:
                     cursor = db.cursor(MySQLdb.cursors.DictCursor)

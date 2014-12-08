@@ -17,7 +17,7 @@ class Mongodb(Collector):
     def launch(self):
         logger.debug('getMongoDBStatus: start')
 
-        if 'MongoDBServer' not in self.agentConfig or self.agentConfig['MongoDBServer'] == '':
+        if 'MongoDBServer' not in self.config or self.config['MongoDBServer'] == '':
             logger.debug('getMongoDBStatus: config not set')
             return False
 
@@ -36,7 +36,7 @@ class Mongodb(Collector):
 
         try:
             import urlparse
-            parsed = urlparse.urlparse(self.agentConfig['MongoDBServer'])
+            parsed = urlparse.urlparse(self.config['MongoDBServer'])
 
             mongoURI = ''
 
@@ -56,7 +56,7 @@ class Mongodb(Collector):
 
             else:
 
-                mongoURI = self.agentConfig['MongoDBServer']
+                mongoURI = self.config['MongoDBServer']
 
             logger.debug('-- mongoURI: %s', mongoURI)
 
@@ -214,7 +214,7 @@ class Mongodb(Collector):
                 pass
 
             # Replica set status
-            if 'MongoDBReplSet' in self.agentConfig and self.agentConfig['MongoDBReplSet'] == 'yes':
+            if 'MongoDBReplSet' in self.config and self.config['MongoDBReplSet'] == 'yes':
                 logger.debug('getMongoDBStatus: get replset status too')
 
                 # isMaster (to get state
@@ -270,7 +270,7 @@ class Mongodb(Collector):
                         status['replSet']['members'][str(member['_id'])]['error'] = member['errmsg']
 
             # db.stats()
-            if 'MongoDBDBStats' in self.agentConfig and self.agentConfig['MongoDBDBStats'] == 'yes':
+            if 'MongoDBDBStats' in self.config and self.config['MongoDBDBStats'] == 'yes':
                 logger.debug('getMongoDBStatus: db.stats() too')
 
                 status['dbStats'] = {}

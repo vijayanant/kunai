@@ -1,5 +1,6 @@
 import httplib # Used only for handling httplib.HTTPException (case #26701)
 import os
+import sys
 import platform
 import re
 import urllib

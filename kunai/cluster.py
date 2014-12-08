@@ -741,6 +741,10 @@ class Cluster(object):
        self.check_thread = threader.create_and_launch(self.do_check_thread, name='check-thread')
 
 
+    def launch_collector_thread(self):
+        self.collector_thread = threader.create_and_launch(self.do_collector_thread, name='collector-thread')
+
+
     def launch_replication_backlog_thread(self):
        self.replication_backlog_thread = threader.create_and_launch(self.do_replication_backlog_thread, name='replication-backlog-thread')
 
@@ -1789,18 +1793,21 @@ class Cluster(object):
        logger.log('COLLECTOR thread launched', part='check')
        cur_launchs = {}
        while not self.interrupted:
+           logger.debug('... collectors...')
            now = int(time.time())
-           for (cls, e) in self.collectors.itertiems():
+           for (cls, e) in self.collectors.iteritems():
                colname = e['name']
+               logger.debug('LOOK AT COLLECOTR?', colname)
                inst = e['inst']
                # maybe a collection is already running
                if colname in cur_launchs:
                    continue
-               
-               if now <  e['next_check']:
-                   logger.debug('CHECK: launching collector %s' % colname, part='check')
+               logger.debug('COL', now, e['next_check'], now - e['next_check'])
+               if now >= e['next_check']:
+                   logger.debug('COLLECTOR: launching collector %s' % colname, part='check')
                    t = threader.create_and_launch(inst.main, name='collector-%s' % colname)#, args=(,))
                    cur_launchs[colname] = t
+                   e['next_check'] += 10
 
            to_del = []
            for (colname, t) in cur_launchs.iteritems():

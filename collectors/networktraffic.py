@@ -1,5 +1,6 @@
 import httplib # Used only for handling httplib.HTTPException (case #26701)
 import os
+import sys
 import platform
 import re
 import urllib
@@ -71,8 +72,8 @@ class NetworkTraffic(Collector):
                             interfaces[key]['trans_bytes'] = long(faces[face]['trans_bytes'])
 
                         # Get the traffic
-                        interfaces[key]['recv_bytes/s'] = interfaces[key]['recv_bytes'] / self.agentConfig['checkFreq']
-                        interfaces[key]['trans_bytes/s'] = interfaces[key]['trans_bytes'] / self.agentConfig['checkFreq']
+                        interfaces[key]['recv_bytes/s'] = interfaces[key]['recv_bytes'] / 10
+                        interfaces[key]['trans_bytes/s'] = interfaces[key]['trans_bytes'] / 10
 
                         interfaces[key]['recv_bytes'] = str(interfaces[key]['recv_bytes'])
                         interfaces[key]['trans_bytes'] = str(interfaces[key]['trans_bytes'])

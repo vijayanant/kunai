@@ -16,7 +16,7 @@ from kunai.collector import Collector
 
 class IoStats(Collector):
     def launch(self):
-        logger.debug('getIOStats: start')
+        #logger.debug('getIOStats: start')
 
         ioStats = {}
 
@@ -24,7 +24,7 @@ class IoStats(Collector):
             logger.debug('getIOStats: unsupported platform')
             return False
 
-        logger.debug('getIOStats: linux2')
+        #logger.debug('getIOStats: linux2')
 
         headerRegexp = re.compile(r'([%\\/\-\_a-zA-Z0-9]+)[\s+]?')
         itemRegexp = re.compile(r'^([a-zA-Z0-9\/]+)')
@@ -66,11 +66,11 @@ class IoStats(Collector):
 
                 for headerIndex in range(0, len(headerNames)):
                     headerName = headerNames[headerIndex]
-                    ioStats[device][headerName] = values[headerIndex]
+                    ioStats[device][headerName] = float(values[headerIndex])
 
         except Exception, ex:
             logger.error('getIOStats: exception = %s', traceback.format_exc())
             return False
 
-        logger.debug('getIOStats: completed, returning')
+        #logger.debug('getIOStats: completed, returning')
         return ioStats

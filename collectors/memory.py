@@ -16,15 +16,15 @@ from kunai.collector import Collector
 
 class Memory(Collector):
     def launch(self):
-        logger.debug('getMemoryUsage: start')
+        #logger.debug('getMemoryUsage: start')
 
         # If Linux like procfs system is present and mounted we use meminfo, else we use "native" mode (vmstat and swapinfo)
         if sys.platform == 'linux2':
 
-            logger.debug('getMemoryUsage: linux2')
+            #logger.debug('getMemoryUsage: linux2')
 
             try:
-                logger.debug('getMemoryUsage: attempting open')
+                #logger.debug('getMemoryUsage: attempting open')
 
                 meminfoProc = open('/proc/meminfo', 'r')
                 lines = meminfoProc.readlines()
@@ -32,17 +32,17 @@ class Memory(Collector):
                 logger.error('getMemoryUsage: exception = %s', e)
                 return False
 
-            logger.debug('getMemoryUsage: Popen success, parsing')
+            #logger.debug('getMemoryUsage: Popen success, parsing')
 
             meminfoProc.close()
 
-            logger.debug('getMemoryUsage: open success, parsing')
+            #logger.debug('getMemoryUsage: open success, parsing')
 
             regexp = re.compile(r'([0-9]+)') # We run this several times so one-time compile now
 
             meminfo = {}
 
-            logger.debug('getMemoryUsage: parsing, looping')
+            #logger.debug('getMemoryUsage: parsing, looping')
 
             # Loop through and extract the numerical values
             for line in lines:
@@ -59,7 +59,7 @@ class Memory(Collector):
                 except IndexError:
                     break
 
-            logger.debug('getMemoryUsage: parsing, looped')
+            #logger.debug('getMemoryUsage: parsing, looped')
 
             memData = {}
             memData['phys_free'] = 0
@@ -70,7 +70,7 @@ class Memory(Collector):
 
             # Phys
             try:
-                logger.debug('getMemoryUsage: formatting (phys)')
+                #logger.debug('getMemoryUsage: formatting (phys)')
 
                 physTotal = int(meminfo['MemTotal'])
                 physFree = int(meminfo['MemFree'])
@@ -92,7 +92,7 @@ class Memory(Collector):
 
             # Swap
             try:
-                logger.debug('getMemoryUsage: formatting (swap)')
+                #logger.debug('getMemoryUsage: formatting (swap)')
 
                 swapTotal = int(meminfo['SwapTotal'])
                 swapFree = int(meminfo['SwapFree'])

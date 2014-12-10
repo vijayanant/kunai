@@ -16,7 +16,7 @@ from kunai.collector import Collector
 
 class IoStats(Collector):
     def launch(self):
-        logger.debug('get_open_ports: start')
+        #logger.debug('get_open_ports: start')
 
         open_ports = {'tcp' : [], 'udp' : []}
 
@@ -24,7 +24,7 @@ class IoStats(Collector):
             logger.debug('get_open_ports: unsupported platform')
             return False
 
-        logger.debug('get_open_ports: linux2')
+        #logger.debug('get_open_ports: linux2')
 
         
         try:
@@ -42,11 +42,11 @@ class IoStats(Collector):
                 if not line.startswith('tcp') and not line.startswith('udp'):
                     # Not a good line, skip it
                     continue
-                print "LOOKING AT LINE"
+                #print "LOOKING AT LINE"
                 elts = [ e for e in line.split(' ') if e]
-                print "ELEMENTS", elts
+                #print "ELEMENTS", elts
                 if len(elts) != 6:
-                    print "BAD LINE", elts
+                    #print "BAD LINE", elts
                     continue
                     
                 open_port = {}
@@ -66,5 +66,5 @@ class IoStats(Collector):
             logger.error('get_open_ports: exception = %s', traceback.format_exc())
             return False
 
-        logger.debug('get_open_ports: completed, returning')
+        #logger.debug('get_open_ports: completed, returning')
         return open_ports

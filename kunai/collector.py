@@ -51,13 +51,12 @@ class Collector:
         try:
             try:
                 proc = subprocess.Popen(cmd.split(' '), stdout=subprocess.PIPE, close_fds=True)
-                print 'PROC', proc
                 output, err = proc.communicate()
                 if int(pythonVersion[1]) >= 6:
                     try:
                         proc.kill()
                     except Exception, e:
-                        logger.debug('Process already terminated')
+                        pass
                 if err:
                     logger.error('Error in sub process', err)
 
@@ -70,12 +69,45 @@ class Collector:
                 try:
                     proc.kill()
                 except Exception, e:
-                    logger.debug('Process already terminated')
+                    #logger.debug('Process already terminated')
+                    pass
             return output
 
 
+    # from a dict recursivly build a ts
+    # 'bla':{'foo':bar, 'titi': toto} => bla.foo.bar bla.titi.toto
+    def create_ts_from_data(self, d, l, s):
+        #print 'Create ts from data', d
+        if not isinstance(d, dict):
+            if isinstance(d, basestring):
+                #print "REFUSING BAD VALUE", d
+                return
+            if isinstance(d, float) or isinstance(d, int):
+                #print "FINISH HIM!"
+                _t = l[:]
+                #_t.append(d)
+                _nts = '.'.join(_t)#ts, d)
+                nts = '%s %s' % (_nts, d)
+                s.add(nts)
+            return
+        # For each key,
+        for (k,v) in d.iteritems():
+            nl = l[:] # use a copy to l so it won't be overwriten
+            nl.append(k)
+            self.create_ts_from_data(v, nl, s)
+            
+        
+        
+
     def main(self):
         logger.debug('Launching main for %s' % self.__class__)
-        r = self.launch()
-        logger.debug('COLRESULT', r, self.__class__.__name__.lower())
-    
+        try:
+            r = self.launch()
+        except Exception, exp:
+            logger.error('Collector %s main error: %s' (self.__class__.__name__.lower(), traceback.format_exc()))
+            return
+        #logger.debug('COLRESULT', r, self.__class__.__name__.lower())
+        s = set()
+        self.create_ts_from_data(r, [], s)
+        print "TSS=", s
+        

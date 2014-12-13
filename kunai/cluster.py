@@ -650,7 +650,6 @@ class Cluster(object):
         p = collector_dir+'/*py'
         print "LOAD", p
         collector_files = glob.glob(p)
-        print "LOADING COLLECTOR FILES", collector_files, collector_dir
         for f in collector_files:
             fname = os.path.splitext(os.path.basename(f))[0]
             try:
@@ -658,8 +657,6 @@ class Cluster(object):
             except Exception, exp:
                 print "COLLECTOR LOAD FAIL", exp
                 continue
-            print "LOADED COLLECTOR", m
-            print m.__dict__
             for (k,v) in m.__dict__.iteritems():
                 print k, v
 
@@ -2056,7 +2053,7 @@ class Cluster(object):
             sock.sendto(enc_packet, addr)
             sock.close()
         except Exception, exp:
-            sock.close() #
+            sock.close()
         
         
 

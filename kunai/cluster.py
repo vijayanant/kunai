@@ -55,6 +55,7 @@ from kunai.websocketmanager import websocketmgr
 from kunai.broadcast import broadcaster
 from kunai.httpdaemon import httpdaemon, route, error, response
 from kunai.pubsub import pubsub
+from kunai.dockermanager import dockermgr
 
 
 KGOSSIP = 10
@@ -282,6 +283,9 @@ class Cluster(object):
         self.collectors = {}
         self.load_collectors()
 
+        # Load docker thing if possible
+        dockermgr.launch()
+        
         # Our main object for gossip managment
         self.gossip = Gossip(self.nodes, self.nodes_lock, self.addr, self.port, self.name, self.incarnation, self.uuid, self.tags, self.seeds)
         

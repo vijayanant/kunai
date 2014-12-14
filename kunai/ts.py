@@ -276,7 +276,11 @@ class TSListener(object):
         self.log("TS UDP port open", self.statsd_port)
         self.log("UDP RCVBUF", self.udp_sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF))
         while True:#not self.interrupted:
-            data, addr = self.udp_sock.recvfrom(65535) # buffer size is 1024 bytes
+            try:
+               data, addr = self.udp_sock.recvfrom(65535) # buffer size is 1024 bytes
+            except socket.timeout: # loop until we got something
+               continue
+            
             self.log("UDP: received message:", data, addr)
             # No data? bail out :)
             if len(data) == 0:
@@ -400,7 +404,10 @@ class TSListener(object):
       self.log("TS Graphite UDP port open", self.graphite_port)
       self.log("UDP RCVBUF", self.graphite_udp_sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF))
       while True:#not self.interrupted:
-         data, addr = self.graphite_udp_sock.recvfrom(65535)
+         try:
+            data, addr = self.graphite_udp_sock.recvfrom(65535)
+         except socket.timeout: # loop until we got some data
+            continue
          self.log("UDP Graphite: received message:", len(data), addr)
          STATS.incr('ts.graphite.udp.receive', 1)
          self.graphite_queue.append(data)
@@ -416,7 +423,10 @@ class TSListener(object):
       self.graphite_tcp_sock.listen(5)
       self.log("TS Graphite TCP port open", self.graphite_port)
       while True:
-         conn, addr = self.graphite_tcp_sock.accept()
+         try:
+            conn, addr = self.graphite_tcp_sock.accept()
+         except socket.timeout: # loop until we got some connect
+            continue
          conn.settimeout(5.0)
          logger.debug('TCP Graphite Connection address:', addr)
          data = ''

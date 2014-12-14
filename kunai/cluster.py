@@ -38,9 +38,6 @@ except ImportError:
 # DO NOT FORGEET:
 # sysctl -w net.core.rmem_max=26214400
 
-from kunai.bottle import route, run, request, abort, error, redirect, response
-import kunai.bottle as bottle
-bottle.debug(True)
 
 from kunai.log import logger
 from kunai.kv import KVBackend
@@ -52,19 +49,25 @@ from kunai.threadmgr import threader
 from kunai.perfdata import PerfDatas
 from kunai.now import NOW
 from kunai.collector import Collector
+from kunai.gossip import Gossip
+# now singleton objects
+from kunai.websocketmanager import websocketmgr
+from kunai.broadcast import broadcaster
+from kunai.httpdaemon import httpdaemon, route, error, response
+from kunai.pubsub import pubsub
+
 
 KGOSSIP = 10
-
 REPLICATS = 1
 
 #LIMIT= 4 * math.ceil(math.log10(float(2 + 1)))
 
 
-
+'''
 class EnableCors(object):
     name = 'enable_cors'
     api = 2
-
+    
     def apply(self, fn, context):
         def _enable_cors(*args, **kwargs):
             # set CORS headers
@@ -77,7 +80,7 @@ class EnableCors(object):
                 return fn(*args, **kwargs)
 
         return _enable_cors
-
+'''
 
 
 class Cluster(object):
@@ -102,7 +105,7 @@ class Cluster(object):
         
         # This will be the place where we will get our configuration data
         self.cfg_data = {}
-        
+
         self.checks = {}
         self.services = {}
         # keep a list of the checks names that match our tags
@@ -127,13 +130,11 @@ class Cluster(object):
         self.bootstrap = bootstrap
         self.seeds = [s.strip() for s in seeds.split(',')]
         
-        # list of uuid to ping back because we though they were dead        
-        self.to_ping_back = [] 
-        
-        # By defautl, we are alive :)
+        # By default, we are alive :)
         self.state = 'alive'
         self.addr = socket.gethostname()#'0.0.0.0'
-        self.broadcasts = []
+        #self.broadcasts = []
+        
         self.data_dir = os.path.abspath('data/data-%s' % self.name)
         
         # Now look at the cfg_dir part
@@ -221,7 +222,7 @@ class Cluster(object):
             with open(self.server_key_file, 'w') as f:
                 f.write(self.uuid)
             logger.log("KEY: %s saved to the server file %s" % (self.uuid, self.server_key_file))
-
+        
         # Now load nodes to do not start from zero
         if os.path.exists(self.nodes_file):
             with open(self.nodes_file, 'r') as f:
@@ -283,7 +284,7 @@ class Cluster(object):
 
         # Now no websocket
         self.webso = None
-
+        
         # Compile the macro patern once
         self.macro_pat = re.compile(r'(\$ *(.*?) *\$)+')
 
@@ -299,6 +300,10 @@ class Cluster(object):
         # Load all collectors
         self.collectors = {}
         self.load_collectors()
+
+        # Our main object for gossip managment
+        self.gossip = Gossip(self.nodes, self.nodes_lock, self.addr, self.port, self.name, self.incarnation, self.uuid, self.tags, self.seeds)
+        
 
 
     def load_cfg_dir(self):
@@ -381,8 +386,6 @@ class Cluster(object):
                        return
                    # It's valid, I set it :)
                    setattr(self, mapto, v)
-                           
-                   
 
 
     def load_check_retention(self):
@@ -551,9 +554,9 @@ class Cluster(object):
 
         # We maybe got a new service, so export this data to every one in the gossip way :)
         node = self.nodes[self.uuid]
-        self.incarnation += 1
-        node['incarnation'] = self.incarnation
-        self.stack_alive_broadcast(node)
+        self.gossip.incarnation += 1
+        node['incarnation'] = self.gossip.incarnation
+        self.gossip.stack_alive_broadcast(node)
         
         # Now we can save the received entry, but first clean unless props
         to_remove = ['from', 'last_check', 'modification_time', 'state', 'output', 'state_id', 'id']
@@ -588,9 +591,9 @@ class Cluster(object):
         self.link_services()
         # We maybe got a less service, so export this data to every one in the gossip way :)
         node = self.nodes[self.uuid]
-        self.incarnation += 1
-        node['incarnation'] = self.incarnation
-        self.stack_alive_broadcast(node)
+        self.gossip.incarnation += 1
+        node['incarnation'] = self.gossip.incarnation
+        self.gossip.stack_alive_broadcast(node)
 
 
        
@@ -681,8 +684,17 @@ class Cluster(object):
         else:  # Ok, really ask us to die :)
             self.interrupted = True
 
+            
+    # Callback for objects that want us to stop in a clean way
+    def set_interrupted(self):
+        self.interrupted = True
+    
 
     def set_exit_handler(self):
+        # First register the self.interrupted in the pubsub call
+        # interrupt
+        pubsub.sub('interrupt', self.set_interrupted)
+        
         func = self.manage_signal
         if os.name == "nt":
             try:
@@ -762,7 +774,10 @@ class Cluster(object):
         self.udp_sock.bind((self.addr, self.port))
         logger.log("UDP port open", self.port, part='udp')
         while not self.interrupted:
-            data, addr = self.udp_sock.recvfrom(65535) # buffer size is 1024 bytes
+            try:
+                data, addr = self.udp_sock.recvfrom(65535) # buffer size is 1024 bytes
+            except socket.timeout, exp:
+                continue # nothing in few seconds? just loop again :)
 
             # No data? bail out :)
             if len(data) == 0:
@@ -800,7 +815,7 @@ class Cluster(object):
                     node = self.nodes.get(fr_uuid, None)
                     if node and node['state'] != 'alive':
                         logger.debug('PINGBACK +ing node', node['name'], part='gossip')
-                        self.to_ping_back.append(fr_uuid)
+                        self.gossip.to_ping_back.append(fr_uuid)
                 elif t == 'ping-relay':
                     tgt = m.get('tgt')
                     _from = m.get('from', '')
@@ -911,28 +926,34 @@ class Cluster(object):
        logger.debug('DNS launched server port %d' % (self.port + 3000), part='dns')
        sock.bind(('', self.port + 3000 ))
        while not self.interrupted:
-          data, addr = sock.recvfrom(1024)
-          try:
-             p = DNSQuery(data)
-             r = p.lookup_for_nodes(self.nodes)
-             logger.debug("DNS lookup nodes response:", r, part='dns')
-             sock.sendto(p.response(r), addr)
-          except Exception, exp:
-             logger.log("DNS problem", exp, part='dns')
+           try:
+               data, addr = sock.recvfrom(1024)
+           except socket.timeout:
+               continue # loop until we got some data :)           
+           try:
+               p = DNSQuery(data)
+               r = p.lookup_for_nodes(self.nodes)
+               logger.debug("DNS lookup nodes response:", r, part='dns')
+               sock.sendto(p.response(r), addr)
+           except Exception, exp:
+               logger.log("DNS problem", exp, part='dns')
 
 
     def launch_websocket_listener(self):
         self.webso = WebSocketBackend(self)
+        # also load it in the websockermanager so other part
+        # can easily forward messages
+        websocketmgr.set(self.webso)
         self.webso.run()
 
 
     def forward_to_websocket(self, msg):
-        if self.webso:
-            self.webso.send_all(msg)
+        websocketmgr.forward(masg)
 
 
     # TODO: SPLIT into modules :)
     def launch_tcp_listener(self):
+        '''
         @error(404)
         def err404(error):
            return ''
@@ -941,11 +962,13 @@ class Cluster(object):
         @route('/')
         def slash():
             return 'OK'
+
+
         
         @route('/agent/name')
         def get_name():
-            return self.nodes[self.uuid]['name']
-
+            return self.gossip.get_name()
+        '''
 
         @route('/agent/state/:nname')
         @route('/agent/state')
@@ -986,7 +1009,8 @@ class Cluster(object):
                     r['checks'][cid] = check
                 return r
 
-        
+
+        '''
         @route('/agent/leave/:nname')
         def set_node_leave(nname):
             node = None
@@ -997,8 +1021,9 @@ class Cluster(object):
             if node is None:
                 return abort(404, 'This node is not found')
             logger.log('PUTTING LEAVE the node %s' % n, part='http')
-            self.set_leave(node)
+            self.gossip.set_leave(node)
             return
+        '''
         
         
         @route('/push-pull')
@@ -1014,7 +1039,7 @@ class Cluster(object):
            with self.nodes_lock:
                nodes = copy.copy(self.nodes)
            m = {'type': 'push-pull-msg', 'nodes': nodes}
-
+           
            logger.debug("PUSH-PULL returning my own nodes", part='gossip')
            return m
 
@@ -1123,7 +1148,7 @@ class Cluster(object):
            self.delete_service(sname)
            return
 
-
+        ''''
         @route('/agent/members')
         def agent_members():
             response.content_type = 'application/json'
@@ -1132,6 +1157,7 @@ class Cluster(object):
             with self.nodes_lock:
                 nodes = copy.copy(self.nodes)
             return nodes
+        '''
 
 
         @route('/kv/:ukey#.+#', method='GET')
@@ -1294,7 +1320,7 @@ class Cluster(object):
                 j = json.loads(buf)
             return j
 
-
+        '''
         @route('/agent/join/:other')
         def agent_join(other):
             response.content_type = 'application/json'
@@ -1309,6 +1335,7 @@ class Cluster(object):
             r = self.do_push_pull(tgt)
             logger.debug("HTTP: agent join for %s:%s result:%s" % (addr, port, r), part='http')
             return json.dumps(r)
+        '''
 
 
         @route('/list/')
@@ -1318,9 +1345,6 @@ class Cluster(object):
             if self.ts is None:
                 return json.dumps([])
             return json.dumps(self.ts.list_keys(key))
-
-
-
 
 
         @route('/exec/:tag')
@@ -1341,13 +1365,8 @@ class Cluster(object):
                 return abort(400, 'BAD cid')
             return json.dumps(res)
         
-            
-        # Enable cors on all our calls
-        bapp = bottle.app()
-        bapp.install(EnableCors())
-
-        # Will lock for
-        run(host=self.addr, port=self.port, server='cherrypy', numthreads=64)# 256?
+        # Now we export lot of URI we can start the daemon
+        httpdaemon.run(self.addr, self.port)
 
         
     # Launch an exec thread and save its uuid so we can keep a look at it then
@@ -1637,11 +1656,9 @@ class Cluster(object):
               time.sleep(0.1)
 
 
-
     def start_ts_listener(self):
        # launch metric based listeners and backend
        self.ts = TSListener(self)
-
 
 
     # I try to get the nodes before myself in the nodes list
@@ -1919,9 +1936,9 @@ class Cluster(object):
                logger.log('CHECK: we got a service state change from %s to %s for %s' % (sstate_id, cstate_id, service['name']), part='check')
                # This node cannot be deleted, so we don't need a protection here
                node = self.nodes.get(self.uuid)                   
-               self.incarnation += 1
-               node['incarnation'] = self.incarnation
-               self.stack_alive_broadcast(node)
+               self.gossip.incarnation += 1
+               node['incarnation'] = self.gossip.incarnation
+               self.gossip.stack_alive_broadcast(node)
            else:
                logger.debug('CHECK: service %s did not change (%s)' % (service['name'], sstate_id), part='check')
        
@@ -2056,8 +2073,6 @@ class Cluster(object):
             sock.close()
         
         
-
-
     # Thread that will look for libexec/configuration change events,
     # will get the newest value in the KV and dump the files
     def launch_update_libexec_cfg_thread(self):
@@ -2240,7 +2255,7 @@ class Cluster(object):
 
             # Same for the incarnation data!
             with open(self.incarnation_file+'.tmp', 'w') as f:
-                f.write(json.dumps(self.incarnation))
+                f.write(json.dumps(self.gossip.incarnation))
             # now more the tmp file into the real one
             shutil.move(self.incarnation_file+'.tmp', self.incarnation_file)
             
@@ -2261,8 +2276,7 @@ class Cluster(object):
             
             self.last_retention_write = now
 
-                        
-            
+                                    
     def count(self, state):
         nodes = {}
         with self.nodes_lock:
@@ -2288,21 +2302,18 @@ class Cluster(object):
                     logger.debug('DEADS: %s' % ','.join([ n['name'] for n in nodes.values() if n['state'] == 'dead']), part='gossip')
 
             if i % 15 == 0:
-                threader.create_and_launch(self.launch_full_sync)
+                threader.create_and_launch(self.gossip.launch_full_sync, name='launch-full-sync')
 
             if i % 2 == 1:
-                threader.create_and_launch(self.ping_another)
+                threader.create_and_launch(self.gossip.ping_another, name='ping-another')
 
-            self.launch_gossip()
+            self.gossip.launch_gossip()
 
-            self.look_at_deads()
+            self.gossip.look_at_deads()
             
             self.retention_nodes()
             
             self.clean_old_events()
-
-            #if self.webso:
-            #    self.webso.send_all('.')
 
             # Look if we lost some threads or not
             threader.check_alives()
@@ -2316,16 +2327,19 @@ class Cluster(object):
         self.retention_nodes(force=True)
 
         logger.log('Exiting')
-    
+
         
+    '''
     # get my own node entry
     def get_boostrap_node(self):
         node = {'addr':self.addr, 'port':self.port, 'name':self.name,
                 'incarnation':self.incarnation, 'uuid':self.uuid, 'state':'alive', 'tags':self.tags,
                 'services':{}}
         return node
+    '''
     
-    
+
+    '''
     # suspect nodes are set with a suspect_time entry. If it's too old,
     # set the node as dead, and broadcast the information to everyone
     def look_at_deads(self):
@@ -2348,7 +2362,7 @@ class Cluster(object):
                 if stime < (now - suspect_timeout):
                     logger.log("SUSPECT: NODE", node['name'], node['incarnation'], node['state'], "is NOW DEAD", part='gossip')
                     node['state'] = 'dead'
-                    self.stack_dead_broadcast(node)
+                    self.gossip.stack_dead_broadcast(node)
 
         # Now for leave nodes, this time we will really remove the entry from our nodes
         to_del = []
@@ -2367,9 +2381,17 @@ class Cluster(object):
                 del self.nodes[uuid]
             except IndexError: # not here? it was was we want
                 pass
-        
+    '''
 
 
+    def stack_event_broadcast(self, payload):
+        msg = self.create_event_msg(payload)
+        b = {'send':0, 'msg':msg}
+        broadcaster.broadcasts.append(b)
+        return 
+
+            
+    '''    
     # Someone suspect a node, so believe it
     def set_suspect(self, suspect):
         addr = suspect['addr']
@@ -2581,8 +2603,9 @@ class Cluster(object):
             if (strong and change) or incarnation > prev['incarnation']:
                 logger.debug("Updating alive a node", prev, 'with', node)
                 self.stack_alive_broadcast(node)
-
-
+    '''
+    
+    '''
     def create_alive_msg(self, node):
         return {'type':'alive', 'name':node['name'], 'addr':node['addr'], 'port': node['port'], 'uuid':node['uuid'],
                 'incarnation':node['incarnation'], 'state':'alive', 'tags':node['tags'], 'services':node['services']}
@@ -2614,30 +2637,24 @@ class Cluster(object):
     def stack_alive_broadcast(self, node):
         msg = self.create_alive_msg(node)
         b = {'send':0, 'msg':msg}
-        self.broadcasts.append(b)
+        broadcaster.broadcasts.append(b)
         # Also send it to the websocket if there
         self.forward_to_websocket(msg)
         return 
 
 
-    def stack_event_broadcast(self, payload):
-        msg = self.create_event_msg(payload)
-        b = {'send':0, 'msg':msg}
-        self.broadcasts.append(b)
-        return 
-
 
     def stack_new_ts_broadcast(self, key):
         msg = self.create_new_ts_msg(key)
         b = {'send':0, 'msg':msg, 'tags':'ts'}
-        self.broadcasts.append(b)
+        broadcaster.broadcasts.append(b)
         return 
     
     
     def stack_suspect_broadcast(self, node):
         msg = self.create_suspect_msg(node)
         b = {'send':0, 'msg':msg}
-        self.broadcasts.append(b)
+        broadcaster.broadcasts.append(b)
         # Also send it to the websocket if there
         self.forward_to_websocket(msg)
         return b
@@ -2646,7 +2663,7 @@ class Cluster(object):
     def stack_leave_broadcast(self, node):
         msg = self.create_leave_msg(node)
         b = {'send':0, 'msg':msg}
-        self.broadcasts.append(b)
+        broadcaster.broadcasts.append(b)
         # Also send it to the websocket if there
         self.forward_to_websocket(msg)
         return b
@@ -2655,10 +2672,11 @@ class Cluster(object):
     def stack_dead_broadcast(self, node):
         msg = self.create_dead_msg(node)
         b = {'send':0, 'msg':msg}
-        self.broadcasts.append(b)
+        broadcaster.broadcasts.append(b)
         self.forward_to_websocket(msg)
         return b
 
+    '''
 
     # Manage a udp message
     def manage_message(self, m):
@@ -2669,12 +2687,12 @@ class Cluster(object):
         elif t == 'ack':
             logger.debug("GOT AN ACK?")
         elif t == 'alive':
-            self.set_alive(m)
+            self.gossip.set_alive(m)
         elif t in ['suspect', 'dead']:
-            self.set_suspect(m)
+            self.gossip.set_suspect(m)
         # Where the fuck is 'dead'??? <--- TODO
         elif t =='leave':
-            self.set_leave(m)
+            self.gossip.set_leave(m)
         elif t == 'event':
             self.manage_event(m)
         else:            
@@ -2690,7 +2708,7 @@ class Cluster(object):
                 return
         # ok new one, add a broadcast so we diffuse it, and manage it
         b = {'send':0, 'msg':m}
-        self.broadcasts.append(b)
+        broadcaster.broadcasts.append(b)
         with self.events_lock:
             self.events[eventid] = m
 
@@ -2758,8 +2776,14 @@ class Cluster(object):
                 os.remove(full_path)
              except OSError, exp:
                 logger.log('WARNING: cannot cleanup the configuration file %s (%s)' % (full_path, exp), part='propagate')
-        
 
+                
+    # We are joining the seed members and lock until we reach at least one
+    def join(self):
+        self.gossip.join()
+    
+                
+    '''
     # Someone send us it's nodes, we are merging it with ours
     def merge_nodes(self, nodes):
         to_del = []
@@ -2819,7 +2843,7 @@ class Cluster(object):
     # We will choose some K random nodes and gossip them the broadcast messages to them
     def launch_gossip(self):
         # There is no broadcast message to sent so bail out :)
-        if len(self.broadcasts) == 0:
+        if len(broadcaster.broadcasts) == 0:
             return
         
         ns = self.nodes.values()
@@ -2926,7 +2950,7 @@ class Cluster(object):
         to_del = []
         stack = []
         tags = dest['tags']
-        for b in self.broadcasts:
+        for b in broadcaster.broadcasts:
             # not a valid node for this message, skip it
             if 'tag' in b and b['tag'] not in tags:
                 continue
@@ -2949,7 +2973,7 @@ class Cluster(object):
 
         # Clean too much broadcasted messages
         for b in to_del:
-            self.broadcasts.remove(b)
+            broadcaster.broadcasts.remove(b)
             
         # Void message? bail out
         if len(message) == 0:
@@ -3032,8 +3056,9 @@ class Cluster(object):
         except rq.exceptions.RequestException,exp: #Exception, exp:
            logger.debug('ERROR CONNECTING TO %s:%s' % other, exp, part='gossip')
            return False
+    '''
 
-    
+       
     # each second we look for all old events in order to clean and delete them :)
     def clean_old_events(self):
         now = int(time.time())

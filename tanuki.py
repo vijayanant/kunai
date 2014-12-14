@@ -36,8 +36,8 @@ import random
 def f(port, name, bootstrap, seeds, tags, cfg_dir, libexec_dir):
     print 'hello', port, name, bootstrap, seeds, tags, cfg_dir, libexec_dir
     c = Cluster(int(port), name, bootstrap, seeds, tags, cfg_dir, libexec_dir)
-    node = c.get_boostrap_node()
-    c.set_alive(node, bootstrap=True)
+    #node = c.get_boostrap_node()
+    #c.set_alive(node, bootstrap=True)
     c.link_services()
     c.link_checks()
     c.launch_listeners()

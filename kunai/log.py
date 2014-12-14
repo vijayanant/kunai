@@ -79,6 +79,8 @@ class Logger(object):
     def info(self, *args, **kwargs):
         self.log(*args, color='blue', **kwargs)
         
+    def warning(self, *args, **kwargs):
+        self.log(*args, color='yellow', **kwargs)        
         
     def error(self, *args,  **kwargs):
         self.log(*args, color='red',  **kwargs)

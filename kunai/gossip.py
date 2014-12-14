@@ -195,8 +195,6 @@ class Gossip(object):
         self.stack_suspect_broadcast(node)
 
 
-
-
     # Someone ask us about a leave node, so believe it
     # Leave node are about all states, so we don't filter by current state
     # if the incarnation is ok, we believe it
@@ -313,10 +311,7 @@ class Gossip(object):
         node['services'] = services
         self.stack_dead_broadcast(node)
         
-                
-
-
-
+        
     # Someone send us it's nodes, we are merging it with ours
     def merge_nodes(self, nodes):
         to_del = []

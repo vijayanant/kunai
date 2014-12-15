@@ -58,7 +58,7 @@ from kunai.pubsub import pubsub
 from kunai.dockermanager import dockermgr
 
 
-KGOSSIP = 10
+
 REPLICATS = 1
 
 #LIMIT= 4 * math.ceil(math.log10(float(2 + 1)))

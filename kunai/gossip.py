@@ -46,6 +46,8 @@ from kunai.websocketmanager import websocketmgr
 from kunai.pubsub import pubsub
 from kunai.httpdaemon import route
 
+KGOSSIP = 10
+
 # Main class for a Gossip cluster
 class Gossip(object):
     def __init__(self, nodes, nodes_lock, addr, port, name, incarnation, uuid, tags, seeds):

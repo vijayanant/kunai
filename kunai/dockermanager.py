@@ -90,6 +90,7 @@ class DockerManager(object):
                 else:
                     logger.debug('UNKNOWN EVENT IN DOCKER %s' % status)
 
+                    
     # main method to export http interface. Must be in a method that got
     # a self entry
     def export_http(self):

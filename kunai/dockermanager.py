@@ -11,12 +11,25 @@ from kunai.stats import STATS
 from kunai.log import logger
 from kunai.threadmgr import threader
 from kunai.now import NOW
+from kunai.httpdaemon import route, response
 
-    
+
+def lower_dict(d):    
+    nd = {}
+    for k,v in d.iteritems():
+        nk = k.lower()
+        if isinstance(v, dict): # yes, it's recursive :)
+            v = lower_dict(v)
+        nd[nk] = v
+    return nd
+
+
 class DockerManager(object):
     def __init__(self):
         self.con = None
         self.containers = {}
+        # We got an object, we can fill the http daemon part
+        self.export_http()
 
         
     def launch(self):
@@ -37,10 +50,7 @@ class DockerManager(object):
 
     def load_container(self, _id):
         inspect = self.con.inspect_container(_id)
-        c = {}
-        # put in lower all keys
-        for (k,v) in inspect.iteritems():
-            c[k.lower()] = v
+        c = lower_dict(inspect)
         logger.debug('LOADED NEW CONTAINER %s' % c)
         self.containers[_id] = c
         
@@ -80,6 +90,54 @@ class DockerManager(object):
                 else:
                     logger.debug('UNKNOWN EVENT IN DOCKER %s' % status)
 
+    # main method to export http interface. Must be in a method that got
+    # a self entry
+    def export_http(self):
+
+        @route('/docker/')
+        @route('/docker')
+        def get_docker():
+            response.content_type = 'application/json'
+            return json.dumps(self.con is not None)
+    
+
+        @route('/docker/containers')
+        @route('/docker/containers/')
+        def get_containers():
+            response.content_type = 'application/json'
+            return json.dumps(self.containers.values())
+
+        
+        @route('/docker/containers/:_id')
+        def get_container(_id):
+            response.content_type = 'application/json'
+            cont = self.containers.get(_id, None)
+            return json.dumps(cont)
+    
+
+        @route('/docker/images')
+        @route('/docker/images/')
+        def get_images():
+            response.content_type = 'application/json'
+            if self.con is None:
+                return json.dumps(None)
+            imgs = self.con.images()
+            r = [lower_dict(d) for d in imgs]
+            return json.dumps(r)
+
+        
+        @route('/docker/images/:_id')
+        def get_images(_id):
+            response.content_type = 'application/json'
+            if self.con is None:
+                return json.dumps(None)
+            imgs = self.con.images()
+            for d in imgs:
+                if d['Id'] == _id:
+                    return json.dumps(lower_dict(d))
+            return json.dumps(None)
+
+                    
 
 dockermgr = DockerManager()
                     

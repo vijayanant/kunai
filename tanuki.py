@@ -44,6 +44,7 @@ def f(port, name, bootstrap, seeds, tags, cfg_dir, libexec_dir):
     c.join()
     c.launch_check_thread()
     c.launch_collector_thread()
+    c.launch_generator_thread()
     if 'kv' in tags.split(','):
         c.launch_replication_backlog_thread()
         c.launch_replication_first_sync_thread()
@@ -75,7 +76,7 @@ if __name__ == '__main__':
         boot = False
         if i == 6768:
             boot = True
-            _tags = 'linux,kv,ts'
+            _tags = 'linux,kv,ts,haproxy'
         port = i
         name = ''
         seeds = '192.168.56.102:%s,192.168.56.102:%s,192.168.56.102:%s' % (p, p2, PORTS[0])

@@ -44,7 +44,8 @@ from kunai.collector import Collector
 from kunai.broadcast import broadcaster
 from kunai.websocketmanager import websocketmgr
 from kunai.pubsub import pubsub
-from kunai.httpdaemon import route
+from kunai.httpdaemon import route, response
+from kunai.encrypter import encrypter
 
 KGOSSIP = 10
 
@@ -417,7 +418,7 @@ class Gossip(object):
     def do_ping(self, other):
         ping_payload = {'type':'ping', 'seqno':0, 'node': other['name'], 'from': self.uuid}
         message = json.dumps(ping_payload)
-        enc_message = self.encrypt(message)
+        enc_message = encrypter.encrypt(message)
         addr = other['addr']
         port = other['port']
         _t = time.time()
@@ -446,7 +447,7 @@ class Gossip(object):
             logger.debug('POSSIBLE RELAYS', relays)
             ping_relay_payload = {'type':'ping-relay', 'seqno':0, 'tgt': other['uuid'], 'from': self.uuid}
             message = json.dumps(ping_relay_payload)
-            enc_message = self.encrypt(message)
+            enc_message = encrypter.encrypt(message)
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
             for r in relays:
                 try:
@@ -508,12 +509,12 @@ class Gossip(object):
         # Void message? bail out
         if len(message) == 0:
             return
-
+        
         addr = dest['addr']
         port = dest['port']
         # and go for it!
         try:
-            enc_message = self.encrypt(message)
+            enc_message = encrypter.encrypt(message)
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
             sock.sendto(enc_message, (addr, port) )
             logger.debug('BROADCAST: sent %d message (len=%d) to %s:%s' % (len(stack), len(enc_message), addr, port), part='gossip')
@@ -581,7 +582,8 @@ class Gossip(object):
            except ValueError, exp:
                logger.debug('ERROR CONNECTING TO %s:%s' % other, exp, part='gossip')
                return False
-           self.manage_message(back)
+           pubsub.pub('manage-message', msg=back)
+           #self.manage_message(back)
            return True
         except rq.exceptions.RequestException,exp: #Exception, exp:
            logger.debug('ERROR CONNECTING TO %s:%s' % other, exp, part='gossip')

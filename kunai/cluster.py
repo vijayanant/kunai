@@ -50,13 +50,14 @@ from kunai.perfdata import PerfDatas
 from kunai.now import NOW
 from kunai.collector import Collector
 from kunai.gossip import Gossip
+from kunai.generator import Generator
 # now singleton objects
 from kunai.websocketmanager import websocketmgr
 from kunai.broadcast import broadcaster
-from kunai.httpdaemon import httpdaemon, route, error, response
+from kunai.httpdaemon import httpdaemon, route, error, response, request, abort
 from kunai.pubsub import pubsub
 from kunai.dockermanager import dockermgr
-
+from kunai.encrypter import encrypter
 
 
 REPLICATS = 1
@@ -90,6 +91,8 @@ class Cluster(object):
 
         self.checks = {}
         self.services = {}
+        self.generators = {}
+
         # keep a list of the checks names that match our tags
         self.active_checks = []
         
@@ -142,6 +145,8 @@ class Cluster(object):
             except ValueError:
                 logger.warning('The encryption key is invalid, not in base64 format')
                 # todo: exit or no exit?
+        # and load the encryption key in the global encrypter object
+        encrypter.load(self.encryption_key)
 
         # Same for master fucking key PRIVATE
         if self.master_key_priv:
@@ -288,7 +293,9 @@ class Cluster(object):
         
         # Our main object for gossip managment
         self.gossip = Gossip(self.nodes, self.nodes_lock, self.addr, self.port, self.name, self.incarnation, self.uuid, self.tags, self.seeds)
-        
+
+        # get the message in a pub-sub way
+        pubsub.sub('manage-message', self.manage_message_pub)
 
 
     def load_cfg_dir(self):
@@ -326,7 +333,7 @@ class Cluster(object):
           mod_time = int(os.path.getmtime(fp))
           cname = os.path.splitext(fname)[0]
           self.import_check(check, 'file:%s' % fname, cname, mod_time=mod_time)
-
+        
        elif 'service' in o:
           service = o['service']
           if not isinstance(service, dict):
@@ -337,6 +344,16 @@ class Cluster(object):
           fname = fp[len(self.cfg_dir)+1:]
           sname = os.path.splitext(fname)[0]
           self.import_service(service, 'file:%s' % fname, sname, mod_time=mod_time)
+       elif 'generator' in o:
+          generator = o['generator']
+          if not isinstance(generator, dict):
+             logger.log('ERROR: the generator from the file %s is not a valid dict' % fp)
+             sys.exit(2)
+
+          mod_time = int(os.path.getmtime(fp))
+          fname = fp[len(self.cfg_dir)+1:]
+          gname = os.path.splitext(fname)[0]
+          self.import_generator(generator, 'file:%s' % fname, gname, mod_time=mod_time)          
        else: # classic main file
            # grok all others data so we can use them in our checks
            parameters = self.__class__.parameters
@@ -518,6 +535,40 @@ class Cluster(object):
        self.services[service['id']] = service
 
 
+    # Generators will create files based on templates from
+    # data and nodes after a change on a node
+    def import_generator(self, generator, fr, gname, mod_time=0):        
+        generator['from'] = fr
+        generator['name'] = generator['id'] = gname
+        if not 'notes' in generator:
+            generator['notes'] = ''
+        if not 'apply_on' in generator:
+            # we take the basename of this check directory for the apply_on
+            # and if /, take the generator name
+            apply_on = os.path.basename(os.path.dirname(gname))
+            if not apply_on:
+                apply_on = generator['name']
+            generator['apply_on'] = generator['name']
+
+        for prop in ['path', 'template']:
+            if not prop in generator:
+                logger.warning('Bad generator, missing property %s in the generator %s' % (prop, gname))
+                return
+        # Template must be from configuration path
+        generator['template'] = os.path.normpath(os.path.join(self.cfg_dir, 'templates', generator['template']))
+        if not generator['template'].startswith(self.cfg_dir):
+            logger.error("Bad file path for your template property of your %s generator, is not in the cfg directory tree" % gname)
+            return
+        # and path must be a abs path
+        generator['path'] = os.path.abspath(generator['path'])
+        
+        # We will try not to hummer the generator
+        generator['modification_time'] = mod_time
+       
+        # Add it into the generators list
+        self.generators[generator['id']] = generator
+
+
 
     # We have a new service from the HTTP, save it where it need to be
     def save_service(self, sname, service):        
@@ -696,40 +747,6 @@ class Cluster(object):
     def log(self, *args):
        logger.log(args)
 
-    
-    # We received data from UDP, if we are set to encrypt, decrypt it
-    def decrypt(self, data):
-        if not self.encryption_key:
-            return data
-        logger.debug('DECRYPT with '+self.encryption_key)
-        # Be sure the data is x16 lenght
-        if len(data) % 16 != 0:
-            data += ' ' * (-len(data) % 16)
-        try:
-            cyph = AES.new(self.encryption_key, AES.MODE_ECB)
-            ndata = cyph.decrypt(data).strip()
-            return ndata
-        except Exception, exp:
-            logger.error('Decryption fail:', exp, part='gossip')
-            return ''
-
-        
-    def encrypt(self, data):
-        if not self.encryption_key:
-            return data
-        logger.debug('ENCRYPT with '+self.encryption_key)
-        # Be sure the data is x16 lenght
-        if len(data) % 16 != 0:
-            data += ' ' * (-len(data) % 16)
-        try:
-            cyph = AES.new(self.encryption_key, AES.MODE_ECB)
-            ndata = cyph.encrypt(data)
-            return ndata
-        except Exception, exp:
-            logger.error('Encryption fail:', exp, part='gossip')
-            return ''
-        
-
 
     def launch_check_thread(self):
        self.check_thread = threader.create_and_launch(self.do_check_thread, name='check-thread')
@@ -738,7 +755,11 @@ class Cluster(object):
     def launch_collector_thread(self):
         self.collector_thread = threader.create_and_launch(self.do_collector_thread, name='collector-thread')
 
+        
+    def launch_generator_thread(self):
+        self.generator_thread = threader.create_and_launch(self.do_generator_thread, name='generator-thread')
 
+        
     def launch_replication_backlog_thread(self):
        self.replication_backlog_thread = threader.create_and_launch(self.do_replication_backlog_thread, name='replication-backlog-thread')
 
@@ -769,7 +790,7 @@ class Cluster(object):
                 continue
 
             # Look if we use encryption
-            data = self.decrypt(data)
+            data = encrypter.decrypt(data)
             # Maybe the decryption failed?
             if data == '':
                 continue
@@ -790,7 +811,7 @@ class Cluster(object):
                     ack = {'type':'ack', 'seqno':m['seqno']}
                     ret_msg = json.dumps(ack)
                     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
-                    enc_ret_msg = self.encrypt(ret_msg)
+                    enc_ret_msg = encrypter.encrypt(ret_msg)
                     sock.sendto(enc_ret_msg, addr)
                     sock.close()
                     logger.debug("PING RETURN ACK MESSAGE", ret_msg, part='gossip')
@@ -822,7 +843,7 @@ class Cluster(object):
                         tgtport = ntgt['port']
                         try:
                             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
-                            enc_message = self.encrypt(message)
+                            enc_message = encrypter.encrypt(message)
                             sock.sendto(enc_message, (tgtaddr, tgtport) )
                             logger.debug('PING waiting %s ack message from a ping-relay' % ntgt['name'], part='gossip')
                             # Allow 3s to get an answer
@@ -832,7 +853,7 @@ class Cluster(object):
                             # An aswer? great it is alive! Let it know our _from node
                             ack = {'type':'ack', 'seqno':0}
                             ret_msg = json.dumps(ack)
-                            enc_ret_msg = self.encrypt(ret_msg)
+                            enc_ret_msg = encrypter.encrypt(ret_msg)
                             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
                             sock.sendto(enc_ret_msg, addr)
                             sock.close()
@@ -870,7 +891,7 @@ class Cluster(object):
                     ping_payload = {'type':'/exec/challenge/proposal', 'fr': self.uuid, 'challenge':echallenge, 'cid':cid}
                     message = json.dumps(ping_payload)
                     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP
-                    enc_message = self.encrypt(message)
+                    enc_message = encrypter.encrypt(message)
                     logger.debug('EXEC asking us a challenge, return %s(%s) to %s' % (challenge, echallenge, addr), part='exec')
                     sock.sendto(enc_message, addr)
                     sock.close()
@@ -994,7 +1015,7 @@ class Cluster(object):
            m = {'type': 'push-pull-msg', 'nodes': nodes}
            
            logger.debug("PUSH-PULL returning my own nodes", part='gossip')
-           return m
+           return json.dumps(m)
 
 
         # We want a state of all our services, with the members
@@ -1101,6 +1122,23 @@ class Cluster(object):
            self.delete_service(sname)
            return
 
+
+        @route('/agent/generators')
+        def agent_generators():
+            response.content_type = 'application/json'
+            logger.debug("/agent/generators is called", part='http')
+            return self.generators
+
+
+        @route('/agent/generators/:gname#.+#')
+        def agent_generator(gname):
+            response.content_type = 'application/json'
+            logger.debug("/agent/generator is called for %s" % gname, part='http')
+            if not gname in self.generators:
+                return abort(404, 'generator not found')
+            return self.generators[gname]
+       
+       
 
         @route('/kv/:ukey#.+#', method='GET')
         def interface_GET_key(ukey):
@@ -1330,7 +1368,7 @@ class Cluster(object):
             logger.debug('EXEC asking for node %s' % node['name'], part='exec')
             payload = {'type':'/exec/challenge/ask', 'fr': self.uuid}
             packet = json.dumps(payload)
-            enc_packet = self.encrypt(packet)
+            enc_packet = encrypter.encrypt(packet)
             logger.debug('EXEC: sending a challenge request to %s' % node['name'], part='exec')
             sock.sendto(enc_packet, (node['addr'], node['port']))
             # Now wait for a return
@@ -1342,7 +1380,7 @@ class Cluster(object):
                 sock.close()
                 d['state'] = 'error'
                 continue
-            msg = self.decrypt(raw)
+            msg = encrypter.decrypt(raw)
             if msg is None:
                 logger.error('EXEC bad return from node %s' % node['name'], part='exec')
                 sock.close()
@@ -1383,7 +1421,7 @@ class Cluster(object):
                        'cid':cid, 'response':response64, 
                        'cmd':cmd}
             packet = json.dumps(payload)
-            enc_packet = self.encrypt(packet)
+            enc_packet = encrypter.encrypt(packet)
             logger.debug('EXEC: sending a challenge response to %s' % node['name'], part='exec')
             sock.sendto(enc_packet, (node['addr'], node['port']))
             
@@ -1396,7 +1434,7 @@ class Cluster(object):
                 sock.close()
                 d['state'] = 'error'
                 continue
-            msg = self.decrypt(raw)
+            msg = encrypter.decrypt(raw)
             if msg is None:
                 logger.error('EXEC bad return from node %s' % node['name'], part='exec')
                 sock.close()
@@ -1508,7 +1546,7 @@ class Cluster(object):
               try:
                   payload = {'type':'/kv/put', 'k':ukey, 'v':value, 'ttl':ttl, 'fw':True}
                   packet = json.dumps(payload)
-                  enc_packet = self.encrypt(packet)
+                  enc_packet = encrypter.encrypt(packet)
                   logger.debug('KV: PUT(udp) asking %s: %s:%s' % (n['name'], n['addr'], n['port']), part='kv')
                   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                   sock.sendto(enc_packet, (n['addr'], n['port']))
@@ -1757,6 +1795,28 @@ class Cluster(object):
            time.sleep(1)
 
 
+    # Main thread for launching generators
+    def do_generator_thread(self):
+       logger.log('GENERATOR thread launched', part='generator')
+       cur_launchs = {}
+       while not self.interrupted:
+           #logger.debug('... collectors...')
+           now = int(time.time())
+           for (gname, gen) in self.generators.iteritems():
+               logger.debug('LOOK AT GENERATOR', gen)
+               apply_on = gen['apply_on']
+               # Maybe this generator is not for us...
+               if apply_on != '*' and apply_on not in self.tags:
+                   continue
+               g = Generator(gen)
+               g.generate(self)
+               should_launch = g.write_if_need()
+               if should_launch:
+                   g.launch_command()
+           time.sleep(1)
+
+
+           
     # Try to find the params for a macro in the foloowing objets, in that order:
     # * check
     # * service
@@ -1989,7 +2049,7 @@ class Cluster(object):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)            
         payload = {'type':'/exec/done', 'cid': cid}
         packet = json.dumps(payload)
-        enc_packet = self.encrypt(packet)
+        enc_packet = encrypter.encrypt(packet)
         logger.debug('EXEC: sending a exec done packet %s:%s' % addr, part='exec')
         try:
             sock.sendto(enc_packet, addr)
@@ -2262,14 +2322,20 @@ class Cluster(object):
         broadcaster.broadcasts.append(b)
         return 
 
-            
+
+    # interface for manage_message, in pubsub
+    def manage_message_pub(self, msg=None):
+        if msg is None:
+            return
+        self.manage_message(msg)
+    
 
     # Manage a udp message
     def manage_message(self, m):
         #print "MANAGE", m        
         t = m['type']
         if t == 'push-pull-msg':
-            self.merge_nodes(m['nodes'])
+            self.gossip.merge_nodes(m['nodes'])
         elif t == 'ack':
             logger.debug("GOT AN ACK?")
         elif t == 'alive':

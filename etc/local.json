@@ -4,7 +4,7 @@
     "libexec"        : "/var/lib/kunai/libexec/",
     "bootstrap"      : false,
     "seeds"          : [],
-    "tags"           : ["kv","ts"],
+    "tags"           : ["kv","ts", "haproxy"],
         
     "encryption_key" : "",
     "master_key_priv": "mfkey.priv",

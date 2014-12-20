@@ -51,25 +51,36 @@ class RaftNode(object):
         pass
 
 
+    # Send a message to all other nodes, but not me
+    def send_to_others(self, nodes, m):
+        for d in nodes:
+            other = d['node']
+            if other.i != self.i:
+                d['queue'].put(m)
+        
+
+    # Return a ok vote to the candidate_id node
     def give_vote_to(self, nodes, candidate_id):
         for d in nodes:
             if d['node'].i == candidate_id:
                 m_ret = {'type':'vote', 'from':self.i}
                 d['queue'].put(m_ret)
 
-                
+
+    # someone did ask us t ovote for him. We must not already have a leader, and
+    # we must be a follower or not already a candidate
     def manage_ask_vote(self, m, nodes):
         if self.leader == None and self.state in ['follower', 'wait_for_candidate']: # no leader? ok vote for you guy! 
-            #print "I give", m['candidate'], " my vote", self.i
             self.state = 'did-vote'
             candidate_id = m['candidate']
             self.give_vote_to(nodes, candidate_id)
         
 
+    # Someone did vote for me, but I must be a candidate to accept this
     def manage_vote(self, m, nodes):
-        if self.state != 'candidate': # exit if not already a candidate because
+        if self.state != 'candidate': # exit if not already a candidate
             return
-
+        
         self.nb_vote += 1
         quorum_size = math.ceil(float(len(nodes)+1)/2)
         #print "I (%d) got a new voter %d" % (n.i, self.nb_vote)
@@ -77,20 +88,17 @@ class RaftNode(object):
             print "I (%d) did win the vote! with %d" % (self.i, self.nb_vote)
             self.state = 'leader'
             # warn every one that I am the leader
-            for d in nodes:
-                other = d['node']
-                if other.i != self.i:
-                    #print "I (%d) ASK %d for vote for me :) " % (n.i, other.i)
-                    m_broad = {'type':'leader-elected', 'leader':self.i}
-                    d['queue'].put(m_broad)
+            m_broad = {'type':'leader-elected', 'leader':self.i}
+            self.send_to_others(nodes, m_broad)
 
-
+    
     # A new leader is elected, take it
     def manage_leader_elected(self, m, nodes):
         elected_id = m['leader']
         if elected_id == self.i:
             # that's me, I alrady know about it...
             return
+        
         if self.state == 'leader': # another leader?
             print "TO MANAGE"*100
         elif self.state in ['candidate', 'follower', 'did-vote']: # 
@@ -112,15 +120,10 @@ class RaftNode(object):
             self.nb_vote = 1 # I vote for me!
             possible_voters = nodes[:]
             random.shuffle(possible_voters) # so not every one is asking the same on the same time
-                    
-            for d in possible_voters:
-                other = d['node']
-                if other.i != self.i:
-                    #print "I (%d) ASK %d for vote for me :) " % (n.i, other.i)
-                    m = {'type':'ask-vote', 'candidate':self.i}
-                    d['queue'].put(m)
+            m = {'type':'ask-vote', 'candidate':self.i}
+            self.send_to_others(possible_voters, m)
 
-
+            
     # We did fail to elect someone, so we increase the election_turn
     # so we will wait more for being candidate.
     # also reset the states
@@ -134,7 +137,7 @@ class RaftNode(object):
         self.nb_vote = 0
         self.state = 'follower'
         self.t_to_candidate = 0
-
+        self.leader = None
         
                                     
     def node_main(self, q, nodes):

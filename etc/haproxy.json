@@ -1,4 +1,13 @@
 {
+    "service": {
+        "tags": ["master"],
+        "port": 80,
+        "check": {
+            "script": "/root/kunai/libexec/check_redis.py",
+            "interval": "10s",
+	    "handlers": ["default"]
+        }
+    },        
     "generator": {
         "apply_on": "haproxy",
 	"path": "/tmp/haproxy.cfg",

@@ -28,6 +28,15 @@ import re
 import copy
 import cPickle
 
+# for mail handler
+import smtplib 
+import datetime
+try:
+    import jinja2
+except ImportError:
+    jinja2 = None
+
+
 try:
     from Crypto.Cipher import AES
     from Crypto.PublicKey import RSA
@@ -35,6 +44,8 @@ except ImportError:
     AES = None
     RSA = None
 
+
+    
 # DO NOT FORGEET:
 # sysctl -w net.core.rmem_max=26214400
 
@@ -92,7 +103,8 @@ class Cluster(object):
         self.checks = {}
         self.services = {}
         self.generators = {}
-
+        self.handlers = {}
+        
         # keep a list of the checks names that match our tags
         self.active_checks = []
         
@@ -344,6 +356,17 @@ class Cluster(object):
           fname = fp[len(self.cfg_dir)+1:]
           sname = os.path.splitext(fname)[0]
           self.import_service(service, 'file:%s' % fname, sname, mod_time=mod_time)
+       # HEHEHEHE
+       elif 'handler' in o:
+           handler = o['handler']
+           if not isinstance(handler, dict):
+               logger.log('ERROR: the handler from the file %s is not a valid dict' % fp)
+               sys.exit(2)
+
+           mod_time = int(os.path.getmtime(fp))
+           fname = fp[len(self.cfg_dir)+1:]
+           hname = os.path.splitext(fname)[0]
+           self.import_handler(handler, 'file:%s' % hname, hname, mod_time=mod_time)          
        elif 'generator' in o:
           generator = o['generator']
           if not isinstance(generator, dict):
@@ -450,6 +473,8 @@ class Cluster(object):
        check['state'] = 'pending'
        check['state_id'] = 3
        check['output'] = ''
+       if not 'handlers' in check:
+           check['handler'] = ['default']
        self.checks[check['id']] = check
 
 
@@ -535,6 +560,26 @@ class Cluster(object):
        self.services[service['id']] = service
 
 
+    def import_handler(self, handler, fr, hname, mod_time=0):
+        handler['from'] = fr
+        handler['name'] = handler['id'] = hname
+        if not 'notes' in handler:
+            handler['notes'] = ''
+        handler['modification_time'] = mod_time
+        if not 'severities' in handler:
+            handler['severities'] = ['ok', 'warning', 'critical', 'unknown']
+        # look at types now
+        if not 'type' in handler:
+            handler['type'] = 'none'
+        _type = handler['type']
+        if _type == 'mail':
+            if not 'email' in handler:
+                handler['email'] = 'root@localhost'
+        
+        # Add it into the list
+        self.handlers[handler['id']] = handler
+       
+       
     # Generators will create files based on templates from
     # data and nodes after a change on a node
     def import_generator(self, generator, fr, gname, mod_time=0):        
@@ -1892,7 +1937,8 @@ class Cluster(object):
        output, err = p.communicate()
        rc = p.returncode
        logger.debug("CHECK RETURN %s : %s %s %s" % (check['id'], rc, output, err), part='check')
-       check['state'] = {0:'OK', 1:'WARNING', 2:'CRITICAL', 3:'UNKNOWN'}.get(rc, 'UNKNOWN')
+       did_change = (check['state_id'] != rc)
+       check['state'] = {0:'ok', 1:'warning', 2:'critical', 3:'unknown'}.get(rc, 'unknown')
        if 0 <= rc <= 3:
            check['state_id'] = rc
        else:
@@ -1901,6 +1947,9 @@ class Cluster(object):
        check['output'] = output + err
        check['last_check'] = int(time.time())
        self.analyse_check(check)
+
+       # Launch the handlers, some need the data if the element did change or not
+       self.launch_handlers(check, did_change)       
     
     
     # get a check return and look it it did change a service state. Also save
@@ -1966,8 +2015,79 @@ class Cluster(object):
            datas.append(e)
 
        self.put_graphite_datas(datas)
-       
 
+
+    def send_mail(self, handler, check):
+
+        addr_from = handler.get('addr_from', 'kunai@mydomain.com')
+        smtp_server = handler.get("smtp_server", "localhost")
+        smtps = handler.get("smtps", False)
+        contacts = handler.get('contacts', ['admin@mydomain.com'])
+        subject_p = handler.get('subject_template', 'email.subject.tpl')
+        text_p = handler.get('text_template', 'email.text.tpl')
+
+        # go connect now                
+        try:
+            print "EMAIL connection to", smtp_server
+            s = smtplib.SMTP(smtp_server, timeout=30)
+            tolist = contacts
+            _time = datetime.datetime.fromtimestamp( int(time.time())).strftime('%Y-%m-%d %H:%M:%S')
+
+            subject_f = os.path.join(self.configuration_dir, 'templates', subject_p)
+            subject_buf = ''
+            text_f = os.path.join(self.configuration_dir, 'templates', text_p)
+            text_buf = ''
+            print "SUBJECT F", subject_f
+            if not os.path.exists(subject_f):
+                logger.error('Missing template file %s' % subject_f)
+                return
+            if not os.path.exists(text_f):
+                logger.error('Missing template file %s' % text_f)
+                return
+            with open(subject_f) as f:
+                subject_buf = f.read()
+            with open(text_f) as f:
+                text_buf = f.read()
+
+            subject_tpl = jinja2.Template(subject_buf)
+            subject_m = subject_tpl.render(handler=handler, check=check, _time=_time)
+            text_tpl = jinja2.Template(text_buf)
+            text_m = text_tpl.render(handler=handler, check=check, _time=_time)
+            
+            msg = '''\
+From: %s
+Subject: %s
+
+%s
+
+''' % (addr_from, subject_m, text_m)
+            #% (addr_from, check['name'], check['state'], _time, check['output'])
+            print "SENDING EMAIL", addr_from, contacts, msg
+            r = s.sendmail(addr_from, contacts, msg)
+            s.quit()
+        except Exception, exp:
+            logger.error('Cannot send email: %s' % traceback.format_exc())
+            
+       
+    def launch_handlers(self, check, did_change):
+        for hname in check['handlers']:
+            handler = self.handlers.get(hname, None)
+            # maybe some one did atomize this handler? if so skip it :)
+            if handler is None:
+                continue
+            # maybe it's a none (untyped) handler, if so skip it
+            if handler['type'] == 'none':
+                continue
+            elif handler['type'] == 'mail':
+                if did_change:
+                    print "HANDLER EMAIL"*10, did_change, handler
+                    self.send_mail(handler, check)
+            else:
+                logger.warning('Unknown handler type %s for %s' % (handler['type'], handler['name']))
+                
+        
+       
+       
     # TODO: RE-factorize with the TS code part
     def put_graphite_datas(self, datas):
       forwards = {}

@@ -67,56 +67,58 @@ class RaftNode(object):
         
 
     def manage_vote(self, m, nodes):
-                    if self.state == 'candidate': # cool, I was really a candidate :)
-                        self.nb_vote += 1
-                        quorum_size = math.ceil(float(len(nodes)+1)/2)
-                        #print "I (%d) got a new voter %d" % (n.i, self.nb_vote)
-                        if self.nb_vote >= quorum_size:
-                            print "I (%d) did win the vote! with %d" % (self.i, self.nb_vote)
-                            self.state = 'leader'
-                            # warn every one that I am the leader
-                            for d in nodes:
-                                other = d['node']
-                                if other.i != self.i:
-                                    #print "I (%d) ASK %d for vote for me :) " % (n.i, other.i)
-                                    m_broad = {'type':'leader-elected', 'leader':self.i}
-                                    d['queue'].put(m_broad)
+        if self.state != 'candidate': # exit if not already a candidate because
+            return
 
-    
+        self.nb_vote += 1
+        quorum_size = math.ceil(float(len(nodes)+1)/2)
+        #print "I (%d) got a new voter %d" % (n.i, self.nb_vote)
+        if self.nb_vote >= quorum_size:
+            print "I (%d) did win the vote! with %d" % (self.i, self.nb_vote)
+            self.state = 'leader'
+            # warn every one that I am the leader
+            for d in nodes:
+                other = d['node']
+                if other.i != self.i:
+                    #print "I (%d) ASK %d for vote for me :) " % (n.i, other.i)
+                    m_broad = {'type':'leader-elected', 'leader':self.i}
+                    d['queue'].put(m_broad)
+
+
+    # A new leader is elected, take it
     def manage_leader_elected(self, m, nodes):
-                    elected_id = m['leader']
-                    if elected_id == self.i:
-                        # that's me, I alrady know about it...
-                        return
-                    if self.state == 'leader': # another leader?
-                        print "TO MANAGE"*100
-                    elif self.state in ['candidate', 'follower', 'did-vote']: # 
-                        self.leader = None
-                        for d in nodes:
-                            if d['node'].i == elected_id:
-                                self.leader = d['node']
-                        self.nb_vote = 0
-                        self.state = 'follower'
-                        self.t_to_candidate = 0
-                        if self.state == 'candidate':
-                            print "I (%d) got a new leader (%d) before me, and I respect it" % (self.i, self.leader.i)
+        elected_id = m['leader']
+        if elected_id == self.i:
+            # that's me, I alrady know about it...
+            return
+        if self.state == 'leader': # another leader?
+            print "TO MANAGE"*100
+        elif self.state in ['candidate', 'follower', 'did-vote']: # 
+            self.leader = None
+            for d in nodes:
+                if d['node'].i == elected_id:
+                    self.leader = d['node']
+            self.nb_vote = 0
+            self.state = 'follower'
+            self.t_to_candidate = 0
+            if self.state == 'candidate':
+                print "I (%d) got a new leader (%d) before me, and I respect it" % (self.i, self.leader.i)
 
 
     def look_for_candidated(self, nodes):
-                if time.time() > self.t_to_candidate:
-                    print "N %d is going to be a candidate!" % self.i
-                    self.state = self.raft_state = 'candidate'
-                    self.nb_vote = 1 # I vote for me!
-                    possible_voters = nodes[:]
-                    random.shuffle(possible_voters) # so not every one is asking the same on the same time
+        if time.time() > self.t_to_candidate:
+            print "N %d is going to be a candidate!" % self.i
+            self.state = self.raft_state = 'candidate'
+            self.nb_vote = 1 # I vote for me!
+            possible_voters = nodes[:]
+            random.shuffle(possible_voters) # so not every one is asking the same on the same time
                     
-                    for d in possible_voters:
-                        other = d['node']
-                        if other.i != self.i:
-                            #print "I (%d) ASK %d for vote for me :) " % (n.i, other.i)
-                            m = {'type':'ask-vote', 'candidate':self.i}
-                            d['queue'].put(m)
-                            
+            for d in possible_voters:
+                other = d['node']
+                if other.i != self.i:
+                    #print "I (%d) ASK %d for vote for me :) " % (n.i, other.i)
+                    m = {'type':'ask-vote', 'candidate':self.i}
+                    d['queue'].put(m)
 
 
     # We did fail to elect someone, so we increase the election_turn
@@ -124,8 +126,16 @@ class RaftNode(object):
     # also reset the states
     def fail_to_elect(self):
         self.election_turn += 1
-        self.state = 'follower'        
-                            
+        self.reset()
+        
+        
+    # Get back to default values for vote things :)
+    def reset(self):
+        self.nb_vote = 0
+        self.state = 'follower'
+        self.t_to_candidate = 0
+
+        
                                     
     def node_main(self, q, nodes):
         time.sleep(2)
@@ -163,7 +173,7 @@ class RaftNode(object):
             
             if self.leader == None and self.state == 'follower':
                 low_election_timeout, high_election_timout = self.ELECTION_TIMEOUT_LIMITS
-                print "INCREASING LOOP", 2**self.election_turn, high_election_timout * (2**self.election_turn)
+                #print "INCREASING LOOP", 2**self.election_turn, high_election_timout * (2**self.election_turn)
                 #if high_election_timout > self.HEARTHBEAT_TIMEOUT:
                 #    print 'WARNING, your election timeout is getting too high to be viable'
                     #high_election_timout = self.HEARTHBEAT_TIMEOUT

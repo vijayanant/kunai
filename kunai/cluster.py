@@ -2075,6 +2075,11 @@ Subject: %s
             # maybe some one did atomize this handler? if so skip it :)
             if handler is None:
                 continue
+
+            # Look at the state and should match severities
+            if not check['state'] in handler['severities']:
+                continue
+            
             # maybe it's a none (untyped) handler, if so skip it
             if handler['type'] == 'none':
                 continue

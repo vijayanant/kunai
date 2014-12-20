@@ -6,7 +6,7 @@
         "contacts": ["admin@mydomain.com"],
 	"addr_from": "kunai@mydomain.com",
 	"smtp_server": "localhost",
-	"smtps": false,
+
 	"subject_template": "email.subject.tpl",
 	"text_template": "email.text.tpl"
     }

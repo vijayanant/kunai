@@ -1,7 +1,7 @@
 #!/usr/bin/python
 import sys
 
-rc = 2
+rc = 0
 
 if rc == 0:
     print "OK is is green"

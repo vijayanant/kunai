@@ -83,13 +83,32 @@ class TestRaft(KunaiTest):
         print "Looking if we really got a leader, and only one"
         self.assert_(len(leaders) == 1)
         
+        # always clean before exiting a test
         self.stop()
         
-            
+
+    # Try with far more nodes
+    def test_raft_large_leader_election(self):
+        self.create_and_wait(N=200, wait=5)
+        print self.nodes
+        leaders = []
+        for d in self.nodes:
+            n = d['node']
+            print n.state
+            if n.state == 'leader':
+                leaders.append(n)
+        
+        print "Looking if we really got a leader, and only one"
+        self.assert_(len(leaders) == 1)
+        
+        # always clean before exiting a test
+        self.stop()
+        
+        
 
     # Create N nodes with their own thread, and wait some seconds 
     def create_and_wait(self, N=3, wait=3):
-        self.create(3)
+        self.create(N)
         self.launch()
         time.sleep(wait)
 

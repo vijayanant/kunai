@@ -46,6 +46,7 @@ class RaftNode(object):
         
 
     def stop(self):
+        self.set_state('leaved')
         self.interrrupted = True
         
         

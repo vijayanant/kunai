@@ -18,7 +18,23 @@ class TestRaft(KunaiTest):
     def create(self, N=3):
         self.nodes = [{'node':RaftNode(i), 'queue': Queue()} for i in range(N)]
         
-        
+
+    def compute_stats(self):
+        self.stats = {}        
+        for d in self.nodes:
+            n = d['node']
+            s = n.state
+            if s not in self.stats:
+                self.stats[s] = 0
+            self.stats[s] += 1
+
+            
+    def count(self, state):
+        # hummering the stats so we are up to date
+        self.compute_stats()
+        return self.stats.get(state, 0)
+
+    
     def launch(self):
         #nodes = [{'node':RaftNode(i), 'queue': Queue()} for i in range(N)]
 
@@ -70,48 +86,96 @@ class TestRaft(KunaiTest):
             t.join(2)
 
 
-    def test_raft_simple_leader_election(self):
-        self.create_and_wait(N=3, wait=3)
-        print self.nodes
-        leaders = []
-        for d in self.nodes:
-            n = d['node']
-            print n.state
-            if n.state == 'leader':
-                leaders.append(n)
-
-        print "Looking if we really got a leader, and only one"
-        self.assert_(len(leaders) == 1)
-        
-        # always clean before exiting a test
-        self.stop()
-        
-
-    # Try with far more nodes
-    def test_raft_large_leader_election(self):
-        self.create_and_wait(N=200, wait=5)
-        print self.nodes
-        leaders = []
-        for d in self.nodes:
-            n = d['node']
-            print n.state
-            if n.state == 'leader':
-                leaders.append(n)
-        
-        print "Looking if we really got a leader, and only one"
-        self.assert_(len(leaders) == 1)
-        
-        # always clean before exiting a test
-        self.stop()
-        
-        
-
     # Create N nodes with their own thread, and wait some seconds 
     def create_and_wait(self, N=3, wait=3):
         self.create(N)
         self.launch()
         time.sleep(wait)
 
+
+    def get_leader(self):
+        for d in self.nodes:
+            n = d['node']
+            if n.state == 'leader':
+                return n
+
+
+    def get_all_state(self, state):
+        res = []
+        for d in self.nodes:
+            n = d['node']
+            if n.state == state:
+                res.append(n)
+        return res
+        
+
+############################### TESTS        
+        
+    def test_raft_simple_leader_election(self):
+        self.create_and_wait(N=3, wait=3)
+
+        self.assert_(self.count('leader') == 1)        
+        # always clean before exiting a test
+        self.stop()
+        
+
+        
+    # Try with far more nodes
+    def test_raft_large_leader_election(self):
+        N = 200
+        W = 5
+        self.create_and_wait(N=N, wait=W)
+
+        print "Looking if we really got a leader, and only one"        
+        self.assert_(self.count('leader') == 1)
+
+        # and N-1 followers
+        nb_followers = self.count('follower')
+        print "NB followers", nb_followers
+        print self.stats
+        self.assert_(nb_followers == N-1)
+        
+        # always clean before exiting a test
+        self.stop()
+        
+        
+    
+    # What is we kill some not leader nodes?
+    def test_raft_kill_no_leader(self):
+        N = 10
+        W = 3
+        self.create_and_wait(N=N, wait=W)
+        print "Looking if we really got a leader, and only one"        
+        self.assert_(self.count('leader') == 1)
+        self.assert_(self.count('follower') == N-1)
+
+        followers = self.get_all_state('follower')
+        print followers
+
+        NB_kill = N/2
+        killed = []
+        for i in range(NB_kill):
+            n = followers[i]
+            n.stop()
+            killed.append(n)
+        # wait for node to accept it
+        time.sleep(1)
+        
+        states = [n.state for n in killed]
+        # look if all are dead
+        self.assert_(states.count('leaved') == NB_kill)
+
+        # there should be still one leader
+        self.assert_(self.count('leader') == 1)
+        # but there are less followers now
+        self.assert_(self.count('follower') == N-1-NB_kill)
+        
+        
+        # always clean before exiting a test
+        self.stop()
+        
+
+        
         
 if __name__ == '__main__':
     unittest.main()

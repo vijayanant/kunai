@@ -3,6 +3,7 @@ Kunai
 
 This is a **preview** of the kunai project about a service discovery / monitoring / light cfg management / command execution tool.
 
+[![Build Status](https://travis-ci.org/naparuba/kunai.svg)](https://travis-ci.org/naparuba/kunai)
 
 
 Prereqs

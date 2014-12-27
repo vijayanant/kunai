@@ -6,6 +6,7 @@ python:
 # command to install dependencies
 # some are only used for travis/coveralls so we are installing them here only
 install:
+  - "pip install -r dependencies"
   - "pip install coveralls"
   - "pip install nose-cov"
   - "pip install unittest2"

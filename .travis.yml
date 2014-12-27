@@ -15,7 +15,7 @@ install:
 # so we must combine them in the end
 script:
   - cd test
-  - nosetests -xv --process-restartworker --processes=1 --process-timeout=999999999  --with-cov --cov=kuani
+  - nosetests -xv --process-restartworker --processes=1 --process-timeout=999999999  --with-cov --cov=kunai
   - coverage combine
 # specific call to launch coverage data into coveralls.io
 after_success:
